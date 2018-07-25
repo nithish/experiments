@@ -1,15 +1,9 @@
 /*
 EXP#1 IAT Hooking
 Ref: https://github.com/m0n0ph1/IAT-Hooking-Revisited
+     https://guidedhacking.com/threads/iat-hook-import-address-table-hooking-explained.4244/
+     http://vexillium.org/?sec-dllsp
 Date: 12/07/18
-
-typedef struct _PROCESS_BASIC_INFORMATION{
-    PVOID Reserved1;
-    PPEB PebBaseAddress;
-    PVOID Reserved2[2];
-    ULONG_PTR UniqueProcessId;
-    PVOID Reserved3;
-} PROCESS_BASIC_INFORMATION;
 */
 
 
@@ -25,14 +19,14 @@ int main()
     BYTE* procMem = malloc(BUFSIZ);
     FARPROC  ntQueryInformationProcess;
     short readSuccess = 0;
-
+    long calVA =0,iidNameRva=0,e=0,mainVA,rva;
     IMAGE_IMPORT_DESCRIPTOR *iatDesc = malloc(sizeof(IMAGE_IMPORT_DESCRIPTOR));
     IMAGE_FILE_HEADER *ntfHdr = malloc(sizeof(IMAGE_FILE_HEADER)); 
     IMAGE_NT_HEADERS *ntHdr = malloc(sizeof(IMAGE_NT_HEADERS));
     IMAGE_DOS_HEADER *dosHdr = malloc(sizeof(IMAGE_DOS_HEADER));
     IMAGE_OPTIONAL_HEADER *optHdr = malloc(sizeof(IMAGE_OPTIONAL_HEADER));
     IMAGE_THUNK_DATA *fThunk = malloc(sizeof(IMAGE_THUNK_DATA));
-    IMAGE_IMPORT_BY_NAME  *impByName,*funcAddr = malloc(sizeof(IMAGE_IMPORT_BY_NAME));
+    IMAGE_IMPORT_BY_NAME *impByName,*funcAddr /*= malloc(sizeof(IMAGE_IMPORT_BY_NAME))*/;
 
     HMODULE mod = GetModuleHandle(0);
     DWORD va;
@@ -43,9 +37,9 @@ int main()
     va =  optHdr->DataDirectory[1].VirtualAddress;
     DWORD size =  optHdr->DataDirectory[1].Size;
     DWORD noFiles = size/sizeof(IMAGE_IMPORT_DESCRIPTOR);
-    int a =(int) mod;
-    int b = (int) va;
-    int c =0,d=0,e=0;
+    mainVA =(long) mod;
+    rva = (long) va;
+    
     
     
     printf("Base Address: %x\n",mod);
@@ -53,31 +47,29 @@ int main()
     printf("Nt Header: %x\n",ntHdr->Signature);
     printf("File Header: %x\n",ntfHdr->Machine);
     printf("Optional Header: %x\n",optHdr->Magic);
-    
+    /*
+        Imported function has to be retrieved from OrginalFirstThunk 
+        Address to the imported function has to be retrieved from FirstThunk
+        Ref: https://msdn.microsoft.com/en-IN/library/ms809762.aspx
+    */
     while(1){
-        c= a+b;
-        iatDesc = (IMAGE_IMPORT_DESCRIPTOR*) c;
-        d = (int) iatDesc->Name;
+        calVA = mainVA+rva;
+        iatDesc = (IMAGE_IMPORT_DESCRIPTOR*) calVA;
+        iidNameRva = (int) iatDesc->Name;
         char* ptr = malloc(sizeof(char*)); 
-        ptr = (char*)(a+d);
-        if(d == 0)
+        ptr = (char*)(mainVA+iidNameRva);
+        if(iidNameRva == 0)
             break;
-        printf("Imported File: %s\n",ptr);
-        fThunk = (IMAGE_THUNK_DATA*) &iatDesc->FirstThunk;
-        while(1){
-            impByName = (IMAGE_IMPORT_BY_NAME*) &fThunk->u1;
-            funcAddr = (IMAGE_IMPORT_BY_NAME*)(&fThunk->u1.AddressOfData);//check
-            int t = (int) funcAddr->Hint;
-            long* u = (long*) (a+t);
-
-            printf("Hint: %s\n",*u);
-            if(impByName->Hint == 0)
-                break;
-            int x = (int)fThunk;
-            int y = x+sizeof(IMAGE_THUNK_DATA);
-            fThunk = (IMAGE_THUNK_DATA*) y;
+        printf("\n\nImported File: %s\n",ptr);
+        fThunk = (IMAGE_THUNK_DATA*)iatDesc->OriginalFirstThunk;
+        fThunk = (IMAGE_THUNK_DATA*) (mainVA+(long)fThunk);
+        printf("Name\tOrdinal\n");
+        while(fThunk->u1.AddressOfData){
+            funcAddr = (IMAGE_IMPORT_BY_NAME*)(mainVA + (long) fThunk->u1.AddressOfData);
+            printf("%s  %d\n",funcAddr->Name,funcAddr->Hint);
+            fThunk++;
         }
-        b+=sizeof(IMAGE_IMPORT_DESCRIPTOR);
+        rva+=sizeof(IMAGE_IMPORT_DESCRIPTOR);
     }
     perror("Thunk Error: ");
 
