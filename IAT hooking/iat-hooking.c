@@ -11,7 +11,7 @@ Date: 12/07/18
 #include<windows.h>
 #include<winternl.h>
 #include<WINNT.H>
-
+void (hook)();
 PROCESS_BASIC_INFORMATION *pbi;
 int main()
 {
@@ -26,6 +26,7 @@ int main()
     IMAGE_DOS_HEADER *dosHdr = malloc(sizeof(IMAGE_DOS_HEADER));
     IMAGE_OPTIONAL_HEADER *optHdr = malloc(sizeof(IMAGE_OPTIONAL_HEADER));
     IMAGE_THUNK_DATA *fThunk = malloc(sizeof(IMAGE_THUNK_DATA));
+    IMAGE_THUNK_DATA *ofThunk = malloc(sizeof(IMAGE_THUNK_DATA));
     IMAGE_IMPORT_BY_NAME *impByName,*funcAddr /*= malloc(sizeof(IMAGE_IMPORT_BY_NAME))*/;
 
     HMODULE mod = GetModuleHandle(0);
@@ -61,16 +62,30 @@ int main()
         if(iidNameRva == 0)
             break;
         printf("\n\nImported File: %s\n",ptr);
-        fThunk = (IMAGE_THUNK_DATA*)iatDesc->OriginalFirstThunk;
+        ofThunk = (IMAGE_THUNK_DATA*)iatDesc->OriginalFirstThunk;
+        ofThunk = (IMAGE_THUNK_DATA*) (mainVA+(long)ofThunk);
+
+        fThunk = (IMAGE_THUNK_DATA*)iatDesc->FirstThunk;
         fThunk = (IMAGE_THUNK_DATA*) (mainVA+(long)fThunk);
+        
         printf("Name\tOrdinal\n");
-        while(fThunk->u1.AddressOfData){
-            funcAddr = (IMAGE_IMPORT_BY_NAME*)(mainVA + (long) fThunk->u1.AddressOfData);
-            printf("%s  %d\n",funcAddr->Name,funcAddr->Hint);
-            fThunk++;
+        while(ofThunk->u1.AddressOfData && fThunk->u1.AddressOfData){
+            funcAddr = (IMAGE_IMPORT_BY_NAME*)(mainVA + (long) ofThunk->u1.AddressOfData);
+            if(strcmp((char *)funcAddr->Name,"DeleteCriticalSection")==0){
+                DWORD old,temp;
+                VirtualProtect(&fThunk->u1.Function,4,PAGE_EXECUTE_READWRITE,&old);
+                fThunk->u1.Function = (DWORD)&hook;
+                VirtualProtect(&old,4,PAGE_EXECUTE_READWRITE,&temp);
+            }
+            printf("%s  %d  0x%p\n",funcAddr->Name,funcAddr->Hint,fThunk->u1.Function);
+            ofThunk++;fThunk++;
         }
         rva+=sizeof(IMAGE_IMPORT_DESCRIPTOR);
     }
     perror("Thunk Error: ");
 
+}
+
+void hook(){
+    printf("HELLOOOOOOOOOOOO NITIN\n\n");
 }
